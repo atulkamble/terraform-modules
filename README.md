@@ -1,3 +1,39 @@
+### Terraform Modules
+
+Terraform modules are reusable groups of Terraform files that manage related infrastructure. They help organize code, reduce repetition, and make infrastructure easier to maintain.
+
+A module can be:
+- **Root module:** The Terraform files in the directory where you run Terraform.
+- **Child module:** A reusable module called by the root module or another module.
+
+### Example: VPC Module
+
+```hcl
+module "network" {
+  source              = "./modules/network"
+  vnet_name           = "my-vnet"
+  address_space       = ["10.0.0.0/16"]
+}
+```
+
+The module’s inputs are **variables**, and it can return values through **outputs**.
+
+
+### Example: EC2 Module
+
+An EC2 child module can create and configure an EC2 instance. It can accept inputs such as the AMI ID, instance type, subnet, and security group, and return outputs such as the instance ID or public IP.
+
+```hcl
+module "ec2" {
+  source        = "./modules/ec2"
+  ami_id        = "ami-xxxxxxxx"
+  instance_type = "t3.micro"
+}
+```
+
+Here, `./modules/ec2` is the child module, and the directory containing this code is the root module.
+
+
 # Terraform AWS EC2 Modules
 
 This project demonstrates how to define one reusable Terraform child module and call it multiple times from a root module. The current configuration provisions three independent Amazon EC2 instances named **base**, **dev**, and **prod** in the AWS region configured by `aws_region` (currently `us-east-1`).
