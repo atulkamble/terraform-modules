@@ -1,255 +1,112 @@
-## Terraform Modules
+# Terraform AWS EC2 Modules
 
-A **Terraform module** is a reusable group of Terraform configuration files. Instead of writing the same EC2 configuration repeatedly, you can create an EC2 module once and reuse it for Dev, Test, and Prod.
+This project demonstrates how to define one reusable Terraform child module and call it multiple times from a root module. The current configuration provisions three independent Amazon EC2 instances named **base**, **dev**, and **prod** in the AWS region configured by `aws_region` (currently `us-east-1`).
 
-A simple project structure can look like this:
+> **Cost reminder:** `terraform apply` creates billable AWS resources. Run `terraform destroy` when you have finished with the lab.
+
+## Architecture
+
+![Terraform AWS EC2 module architecture](diagrams/architecture.mmd)
+
+The root module configures the AWS provider and passes the AMI ID, instance type, and instance name into three instances of the same `modules/ec2` module. The child module creates one `aws_instance` resource and returns its instance ID and public IP. Root outputs expose those values for each environment.
+
+## Repository structure
 
 ```text
-terraform-ec2-module/
-├── main.tf
-├── variables.tf
-├── outputs.tf
-├── terraform.tfvars
-└── modules/
-    └── ec2/
-        ├── main.tf
-        ├── variables.tf
-        └── outputs.tf
+.
+├── main.tf                  # AWS provider and base/dev/prod module calls
+├── variables.tf             # Region, AMI, and environment instance types
+├── terraform.tfvars         # Example input values
+├── outputs.tf               # Outputs for all three instances
+├── modules/
+│   └── ec2/
+│       ├── main.tf          # Reusable aws_instance resource
+│       ├── variables.tf     # Child-module inputs
+│       └── outputs.tf       # Child-module outputs
+├── diagrams/
+│   └── architecture.mmd     # Editable Mermaid architecture source
+├── script.sh                # Convenience initialization/plan/apply script
+└── git-push.sh              # Git helper script
 ```
 
-The **root module** is the main project directory. The `modules/ec2` directory is a **child module**.
+## What gets created
 
-### 1. EC2 Module — `modules/ec2/main.tf`
+| Module call | EC2 Name tag | Instance type |
+| --- | --- | --- |
+| `base` | `base-instance` | `var.instance_type` (default: `t2.micro`, overridden in the checked-in tfvars) |
+| `dev` | `dev-instance` | `var.instance_type_dev` (default: `t3.medium`) |
+| `prod` | `prod-instance` | `var.instance_type_prod` (default: `t3.large`) |
 
-```hcl
-resource "aws_instance" "ec2" {
-  ami           = var.ami_id
-  instance_type = var.instance_type
+All three calls use the same `ami_id`. Choose an AMI that exists in the selected AWS region and is compatible with your account and instance requirements. The EC2 resource in this project does not define a VPC, subnet, security group, key pair, IAM role, or user data; networking and access therefore depend on AWS/provider defaults and the selected AMI.
 
-  tags = {
-    Name = var.instance_name
-  }
-}
-```
+## How module inputs and outputs flow
 
-### 2. Module Variables — `modules/ec2/variables.tf`
+1. Root variables are declared in `variables.tf`; values can come from defaults, `terraform.tfvars`, environment variables, or command-line arguments.
+2. The root module in `main.tf` invokes `./modules/ec2` three times and passes each child module its AMI, instance type, and name.
+3. The child module creates one `aws_instance` and exposes `instance_id` and `public_ip`.
+4. Root `outputs.tf` publishes the corresponding values for base, dev, and prod.
 
-```hcl
-variable "ami_id" {
-  description = "AMI ID for EC2 instance"
-  type        = string
-}
+## Prerequisites
 
-variable "instance_type" {
-  description = "EC2 instance type"
-  type        = string
-}
+- Terraform CLI installed
+- AWS account and credentials available through the AWS provider's standard credential chain (for example, an AWS profile or environment variables)
+- An AMI ID valid in the configured region
+- IAM permissions to manage EC2 instances and the related resources required by your AWS account defaults
 
-variable "instance_name" {
-  description = "Name of EC2 instance"
-  type        = string
-}
-```
+Do not commit AWS access keys or other credentials to this repository.
 
-### 3. Module Output — `modules/ec2/outputs.tf`
+## Configure
 
-```hcl
-output "instance_id" {
-  value = aws_instance.ec2.id
-}
+Review `terraform.tfvars` and `variables.tf`. The repository currently sets:
 
-output "public_ip" {
-  value = aws_instance.ec2.public_ip
-}
-```
+- Region: `us-east-1`
+- AMI: `ami-096ef200a877f36af`
+- Base instance type: `t3.micro`
+- Dev instance type: `t3.medium`
+- Prod instance type: `t3.large`
 
-## Root Module
+AMI IDs are region-specific and may become unavailable; replace the example with a current AMI for your region when needed.
 
-### `main.tf`
+### Configuration warning
 
-```hcl
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 6.0"
-    }
-  }
-}
+The checked-in `terraform.tfvars` contains `instance_name`, but the root module does not declare or use a root variable with that name. Terraform reports an **undeclared variable** warning and ignores that value. The names are currently set directly in the three module calls in `main.tf`. To remove the warning, delete the unused `instance_name` line from `terraform.tfvars`, or change the Terraform configuration to declare and use that variable.
 
-provider "aws" {
-  region = var.aws_region
-}
+## Run
 
-module "web_server" {
-  source = "./modules/ec2"
-
-  ami_id        = var.ami_id
-  instance_type = var.instance_type
-  instance_name = var.instance_name
-}
-```
-
-### `variables.tf`
-
-```hcl
-variable "aws_region" {
-  description = "AWS Region"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "ami_id" {
-  description = "AMI ID"
-  type        = string
-}
-
-variable "instance_type" {
-  description = "EC2 instance type"
-  type        = string
-  default     = "t2.micro"
-}
-
-variable "instance_name" {
-  description = "EC2 instance name"
-  type        = string
-}
-```
-
-### `terraform.tfvars`
-
-```hcl
-aws_region    = "us-east-1"
-ami_id        = "ami-xxxxxxxxxxxxxxxxx"
-instance_type = "t2.micro"
-instance_name = "Terraform-Web-Server"
-```
-
-Use a valid AMI ID for the region where you deploy.
-
-### Root `outputs.tf`
-
-```hcl
-output "ec2_instance_id" {
-  value = module.web_server.instance_id
-}
-
-output "ec2_public_ip" {
-  value = module.web_server.public_ip
-}
-```
-
-## Run the Project
+From the repository root:
 
 ```bash
 terraform init
-```
-
-Validate:
-
-```bash
-terraform validate
-```
-
-Format:
-
-```bash
 terraform fmt -recursive
-```
-
-Check the execution plan:
-
-```bash
+terraform validate
 terraform plan
-```
-
-Deploy:
-
-```bash
 terraform apply
 ```
 
-Enter:
-
-```text
-yes
-```
-
-Check output:
+Review the plan before applying. Terraform should plan three EC2 instances when none exist. To inspect the values after apply:
 
 ```bash
 terraform output
+terraform output base_instance_id
+terraform output base_public_ip
+terraform output dev_instance_id
+terraform output dev_public_ip
+terraform output prod_instance_id
+terraform output prod_public_ip
 ```
 
-You should see something similar to:
-
-```text
-ec2_instance_id = "i-0123456789abcdef0"
-ec2_public_ip    = "54.x.x.x"
-```
-
-When finished:
+Destroy the resources when they are no longer needed:
 
 ```bash
 terraform destroy
 ```
 
-## How the Module Works
+The helper `script.sh` automates initialization, validation/planning, and apply. Read the script before running it because it applies infrastructure and can incur AWS charges.
 
-```text
-terraform.tfvars
-      ↓
-Root variables.tf
-      ↓
-Root main.tf
-      ↓
-module "web_server"
-      ↓
-modules/ec2/
-      ↓
-aws_instance
-      ↓
-AWS EC2
-```
+## Reuse the module
 
-For example:
+The module can be extended by adding another module call in root `main.tf`, passing the required `ami_id`, `instance_type`, and `instance_name` inputs, and adding root outputs if you want to expose that instance's values.
 
-```hcl
-module "web_server" {
-  source = "./modules/ec2"
+## License
 
-  ami_id        = var.ami_id
-  instance_type = var.instance_type
-  instance_name = var.instance_name
-}
-```
-
-Here, `source` tells Terraform where the module exists, and the other values are **inputs passed from the root module to the EC2 module**.
-
-The main benefit is reusability. Later you can create several environments using the same module:
-
-```hcl
-module "dev_ec2" {
-  source = "./modules/ec2"
-
-  ami_id        = var.ami_id
-  instance_type = "t2.micro"
-  instance_name = "Dev-Server"
-}
-
-module "prod_ec2" {
-  source = "./modules/ec2"
-
-  ami_id        = var.ami_id
-  instance_type = "t3.medium"
-  instance_name = "Prod-Server"
-}
-```
-
-So the basic concept to remember is:
-
-```text
-Variables → Module → Resource → Outputs
-```
-
-A good next project after this is **VPC + Security Group + EC2 using separate Terraform modules**, because that demonstrates real module dependencies and output passing.
+See [LICENSE](LICENSE).
