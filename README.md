@@ -6,7 +6,34 @@ This project demonstrates how to define one reusable Terraform child module and 
 
 ## Architecture
 
-![Terraform AWS EC2 module architecture](diagrams/architecture.mmd)
+```mermaid
+flowchart TB
+  TFV["terraform.tfvars and variable defaults"]
+  ROOT["Root module<br/>main.tf + variables.tf<br/>AWS provider: configured region"]
+  subgraph CALLS["Three root module calls"]
+    BASE["base<br/>base-instance<br/>instance_type"]
+    DEV["dev<br/>dev-instance<br/>instance_type_dev"]
+    PROD["prod<br/>prod-instance<br/>instance_type_prod"]
+  end
+  subgraph CHILD["Reusable child module: modules/ec2"]
+    INPUTS["Inputs<br/>ami_id, instance_type, instance_name"]
+    EC2["aws_instance.ec2"]
+    OUTPUTS["Child outputs<br/>instance_id, public_ip"]
+    INPUTS --> EC2 --> OUTPUTS
+  end
+  RES["Three EC2 instances in AWS<br/>base • dev • prod"]
+  ROOTOUT["Root outputs<br/>instance IDs and public IPs<br/>for base, dev, and prod"]
+
+  TFV --> ROOT
+  ROOT --> BASE
+  ROOT --> DEV
+  ROOT --> PROD
+  BASE --> INPUTS
+  DEV --> INPUTS
+  PROD --> INPUTS
+  EC2 --> RES
+  OUTPUTS --> ROOTOUT
+```
 
 The root module configures the AWS provider and passes the AMI ID, instance type, and instance name into three instances of the same `modules/ec2` module. The child module creates one `aws_instance` resource and returns its instance ID and public IP. Root outputs expose those values for each environment.
 
